@@ -114,6 +114,7 @@ export default function Monitor() {
   const [err, setErr] = useState("");
   const [selectedClient, setSelectedClient] = useState(null);
   const [filterDate, setFilterDate] = useState(""); // yyyy-mm-dd string
+  const [showApplied, setShowApplied] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -139,20 +140,21 @@ export default function Monitor() {
     if (!selectedClient && clients.length) setSelectedClient(clients[0]);
   }, [clients, selectedClient]);
 
-  // Filtered jobs
-  const clientJobs = useMemo(() => {
+  // Applied jobs for selected client
+  const appliedJobs = useMemo(() => {
     if (!selectedClient) return [];
     return jobs.filter((j) => j.userID === selectedClient && isAppliedNow(j));
   }, [jobs, selectedClient]);
 
+  // Date filter applied jobs
   const dateFilteredJobs = useMemo(() => {
-    if (!filterDate) return clientJobs;
+    if (!filterDate) return appliedJobs;
     const target = new Date(filterDate);
-    return clientJobs.filter((job) => {
+    return appliedJobs.filter((job) => {
       const dt = parseFlexibleDate(job.updatedAt || job.dateAdded);
       return dt && sameDay(dt, target);
     });
-  }, [clientJobs, filterDate]);
+  }, [appliedJobs, filterDate]);
 
   return (
     <div className="flex min-h-[500px] rounded-xl border border-slate-200 bg-white">
@@ -168,7 +170,7 @@ export default function Monitor() {
 
         {!loading && !err && selectedClient && (
           <>
-            <div className="mb-4 flex items-center gap-2">
+            <div className="mb-4 flex items-center gap-4">
               <h2 className="text-lg font-semibold text-slate-900">
                 Jobs for <span className="font-bold">{selectedClient}</span>
               </h2>
@@ -176,7 +178,7 @@ export default function Monitor() {
                 type="date"
                 value={filterDate}
                 onChange={(e) => setFilterDate(e.target.value)}
-                className="ml-4 rounded border border-slate-300 px-2 py-1 text-sm"
+                className="rounded border border-slate-300 px-2 py-1 text-sm"
               />
               {filterDate && (
                 <button
@@ -186,19 +188,33 @@ export default function Monitor() {
                   Clear
                 </button>
               )}
+
+              {/* Applied Jobs toggle button */}
+              <button
+                onClick={() => setShowApplied((s) => !s)}
+                className="ml-auto rounded border border-slate-300 px-3 py-1 text-sm hover:bg-slate-50"
+              >
+                {showApplied
+                  ? "Hide Applied"
+                  : `Applied Jobs (${appliedJobs.length})`}
+              </button>
             </div>
 
-            {dateFilteredJobs.length === 0 && (
-              <div className="text-slate-600">
-                No jobs matching “applied” on this date.
-              </div>
+            {/* If Applied toggle is ON → show jobs */}
+            {showApplied && (
+              <>
+                {dateFilteredJobs.length === 0 && (
+                  <div className="text-slate-600">
+                    No jobs matching “applied” on this date.
+                  </div>
+                )}
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  {dateFilteredJobs.map((job) => (
+                    <JobCard key={job._id || job.jobID} job={job} />
+                  ))}
+                </div>
+              </>
             )}
-
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {dateFilteredJobs.map((job) => (
-                <JobCard key={job._id || job.jobID} job={job} />
-              ))}
-            </div>
           </>
         )}
       </div>
