@@ -66,6 +66,20 @@ function sortByUpdatedDesc(a, b) {
   return tb - ta;
 }
 
+function safeDate(job) {
+  return parseFlexibleDate(job.updatedAt || job.dateAdded);
+}
+
+// Status counters: { applied: 10, interviewing: 4, rejected: 2, ... }
+function getStatusCounts(jobs = []) {
+  const counts = {};
+  for (const j of jobs) {
+    const s = String(j.currentStatus || "").toLowerCase() || "unknown";
+    counts[s] = (counts[s] || 0) + 1;
+  }
+  return counts;
+}
+
 // ---------------- UI ----------------
 function ClientList({ clients = [], selected, onSelect }) {
   return (
@@ -91,8 +105,51 @@ function ClientList({ clients = [], selected, onSelect }) {
   );
 }
 
+function StatusBar({ counts = {}, dateAppliedCount = 0, filterDate }) {
+  // Show common statuses first, then any extra in alpha order.
+  const commonOrder = ["applied", "interviewing", "rejected", "offer", "hired", "on-hold"];
+  const keys = [
+    ...commonOrder.filter((k) => counts[k]),
+    ...Object.keys(counts)
+      .filter((k) => !commonOrder.includes(k))
+      .sort(),
+  ];
+  return (
+    <div className="sticky top-0 z-10 mb-3 w-full border border-slate-200 bg-white/80 backdrop-blur px-3 py-2 rounded-lg">
+      <div className="flex flex-wrap items-center gap-2">
+        {keys.length === 0 ? (
+          <span className="text-xs text-slate-500">No jobs for this client.</span>
+        ) : (
+          keys.map((k) => (
+            <span
+              key={k}
+              className="inline-flex items-center gap-1 rounded-full border border-slate-300 px-2 py-0.5 text-xs text-slate-700"
+              title={k}
+            >
+              <span className="capitalize">{k}</span>
+              <span className="rounded bg-slate-100 px-1.5">{counts[k]}</span>
+            </span>
+          ))
+        )}
+
+        <div className="ml-auto text-xs text-slate-700">
+          <span className="mr-1 font-medium">Applied on date:</span>
+          <span className="rounded-full border border-slate-300 px-2 py-0.5">
+            {filterDate ? dateAppliedCount : 0}
+          </span>
+          {filterDate ? (
+            <span className="ml-2 text-slate-500">({filterDate})</span>
+          ) : (
+            <span className="ml-2 text-slate-400">(pick a date)</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function JobCard({ job }) {
-  const dt = parseFlexibleDate(job.updatedAt || job.dateAdded);
+  const dt = safeDate(job);
   const when = dt ? dt.toLocaleString() : "—";
   const [open, setOpen] = useState(false);
 
@@ -117,7 +174,7 @@ function JobCard({ job }) {
 }
 
 function CompactRow({ job }) {
-  const dt = parseFlexibleDate(job.updatedAt || job.dateAdded);
+  const dt = safeDate(job);
   const when = dt ? dt.toLocaleDateString() : "—";
   return (
     <div className="rounded-lg border border-slate-200 px-3 py-2">
@@ -180,23 +237,29 @@ export default function Monitor() {
     if (!selectedClient && clients.length) setSelectedClient(clients[0]);
   }, [clients, selectedClient]);
 
-  // Applied jobs for selected client (used in both middle & right)
-  const appliedJobs = useMemo(() => {
+  const clientJobs = useMemo(() => {
     if (!selectedClient) return [];
-    return jobs
-      .filter((j) => j.userID === selectedClient && isAppliedNow(j))
-      .sort(sortByUpdatedDesc);
+    return jobs.filter((j) => j.userID === selectedClient);
   }, [jobs, selectedClient]);
 
-  // Middle column: date-filtered applied jobs
+  const statusCounts = useMemo(() => getStatusCounts(clientJobs), [clientJobs]);
+
+  // Applied jobs for selected client (used in both middle & right)
+  const appliedJobs = useMemo(() => {
+    return clientJobs.filter(isAppliedNow).sort(sortByUpdatedDesc);
+  }, [clientJobs]);
+
+  // Middle column: date-filtered applied jobs (for the selected date)
   const dateFilteredJobs = useMemo(() => {
     if (!filterDate) return [];
     const target = new Date(filterDate);
     return appliedJobs.filter((job) => {
-      const dt = parseFlexibleDate(job.updatedAt || job.dateAdded);
+      const dt = safeDate(job);
       return dt && sameDay(dt, target);
     });
   }, [appliedJobs, filterDate]);
+
+  const dateAppliedCount = dateFilteredJobs.length;
 
   return (
     <div className="flex min-h-[500px] rounded-xl border border-slate-200 bg-white">
@@ -207,18 +270,27 @@ export default function Monitor() {
         onSelect={setSelectedClient}
       />
 
-      {/* Middle: Date Filter + Matching Applied Jobs */}
+      {/* Middle: Status bar + date filter + results */}
       <div className="flex-1 overflow-auto border-r border-slate-200 p-4">
         {loading && <div className="text-slate-700">Loading…</div>}
         {!loading && err && <div className="text-red-600">Error: {err}</div>}
 
         {!loading && !err && selectedClient && (
           <>
-            <div className="mb-4 flex flex-wrap items-center gap-3">
+            {/* Slim status bar */}
+            <StatusBar
+              counts={statusCounts}
+              dateAppliedCount={dateAppliedCount}
+              filterDate={filterDate}
+            />
+
+            {/* Title + date filter */}
+            <div className="mb-3 flex flex-wrap items-center gap-3">
               <h2 className="text-lg font-semibold text-slate-900">
                 Jobs for <span className="font-bold">{selectedClient}</span>
               </h2>
               <div className="ml-auto flex items-center gap-2">
+                <label className="text-sm text-slate-700">Filter date:</label>
                 <input
                   type="date"
                   value={filterDate}
