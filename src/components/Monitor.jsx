@@ -58,6 +58,14 @@ function isAppliedNow(job) {
   return current === "applied" && last === "applied";
 }
 
+function sortByUpdatedDesc(a, b) {
+  const da = parseFlexibleDate(a.updatedAt || a.dateAdded);
+  const db = parseFlexibleDate(b.updatedAt || b.dateAdded);
+  const ta = da ? da.getTime() : 0;
+  const tb = db ? db.getTime() : 0;
+  return tb - ta;
+}
+
 // ---------------- UI ----------------
 function ClientList({ clients = [], selected, onSelect }) {
   return (
@@ -73,6 +81,7 @@ function ClientList({ clients = [], selected, onSelect }) {
                 ? "border-slate-300 bg-slate-100 font-semibold"
                 : "border-slate-200 bg-white hover:bg-slate-50"
             }`}
+            title={c}
           >
             {c}
           </button>
@@ -107,14 +116,44 @@ function JobCard({ job }) {
   );
 }
 
+function CompactRow({ job }) {
+  const dt = parseFlexibleDate(job.updatedAt || job.dateAdded);
+  const when = dt ? dt.toLocaleDateString() : "—";
+  return (
+    <div className="rounded-lg border border-slate-200 px-3 py-2">
+      <div className="truncate text-sm font-semibold">
+        {job.jobTitle || "Untitled Role"}
+      </div>
+      <div className="truncate text-xs text-slate-600">
+        {(job.companyName || "Company") + " • " + when}
+      </div>
+    </div>
+  );
+}
+
+function RightAppliedColumn({ jobs = [] }) {
+  const sorted = useMemo(() => [...jobs].sort(sortByUpdatedDesc), [jobs]);
+  return (
+    <div className="w-64 border-l border-slate-200 p-3">
+      <h3 className="mb-2 text-base font-semibold text-slate-800">
+        Applied <span className="text-slate-500">({sorted.length})</span>
+      </h3>
+      <div className="flex max-h-[calc(100vh-10rem)] flex-col gap-2 overflow-y-auto">
+        {sorted.map((j) => (
+          <CompactRow key={j._id || j.jobID || `${j.userID}-${j.joblink}`} job={j} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ---------------- Main Component ----------------
 export default function Monitor() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [selectedClient, setSelectedClient] = useState(null);
-  const [filterDate, setFilterDate] = useState(""); // yyyy-mm-dd string
-  const [showApplied, setShowApplied] = useState(false);
+  const [filterDate, setFilterDate] = useState(""); // yyyy-mm-dd
 
   useEffect(() => {
     (async () => {
@@ -130,6 +169,7 @@ export default function Monitor() {
     })();
   }, []);
 
+  // Left column: clients
   const clients = useMemo(() => {
     const set = new Set();
     jobs.forEach((j) => j.userID && set.add(j.userID));
@@ -140,15 +180,17 @@ export default function Monitor() {
     if (!selectedClient && clients.length) setSelectedClient(clients[0]);
   }, [clients, selectedClient]);
 
-  // Applied jobs for selected client
+  // Applied jobs for selected client (used in both middle & right)
   const appliedJobs = useMemo(() => {
     if (!selectedClient) return [];
-    return jobs.filter((j) => j.userID === selectedClient && isAppliedNow(j));
+    return jobs
+      .filter((j) => j.userID === selectedClient && isAppliedNow(j))
+      .sort(sortByUpdatedDesc);
   }, [jobs, selectedClient]);
 
-  // Date filter applied jobs
+  // Middle column: date-filtered applied jobs
   const dateFilteredJobs = useMemo(() => {
-    if (!filterDate) return appliedJobs;
+    if (!filterDate) return [];
     const target = new Date(filterDate);
     return appliedJobs.filter((job) => {
       const dt = parseFlexibleDate(job.updatedAt || job.dateAdded);
@@ -158,66 +200,67 @@ export default function Monitor() {
 
   return (
     <div className="flex min-h-[500px] rounded-xl border border-slate-200 bg-white">
+      {/* Left: Clients */}
       <ClientList
         clients={clients}
         selected={selectedClient}
         onSelect={setSelectedClient}
       />
 
-      <div className="flex-1 overflow-auto p-4">
+      {/* Middle: Date Filter + Matching Applied Jobs */}
+      <div className="flex-1 overflow-auto border-r border-slate-200 p-4">
         {loading && <div className="text-slate-700">Loading…</div>}
         {!loading && err && <div className="text-red-600">Error: {err}</div>}
 
         {!loading && !err && selectedClient && (
           <>
-            <div className="mb-4 flex items-center gap-4">
+            <div className="mb-4 flex flex-wrap items-center gap-3">
               <h2 className="text-lg font-semibold text-slate-900">
                 Jobs for <span className="font-bold">{selectedClient}</span>
               </h2>
-              <input
-                type="date"
-                value={filterDate}
-                onChange={(e) => setFilterDate(e.target.value)}
-                className="rounded border border-slate-300 px-2 py-1 text-sm"
-              />
-              {filterDate && (
-                <button
-                  onClick={() => setFilterDate("")}
-                  className="text-sm text-blue-600 hover:underline"
-                >
-                  Clear
-                </button>
-              )}
-
-              {/* Applied Jobs toggle button */}
-              <button
-                onClick={() => setShowApplied((s) => !s)}
-                className="ml-auto rounded border border-slate-300 px-3 py-1 text-sm hover:bg-slate-50"
-              >
-                {showApplied
-                  ? "Hide Applied"
-                  : `Applied Jobs (${appliedJobs.length})`}
-              </button>
+              <div className="ml-auto flex items-center gap-2">
+                <input
+                  type="date"
+                  value={filterDate}
+                  onChange={(e) => setFilterDate(e.target.value)}
+                  className="rounded border border-slate-300 px-2 py-1 text-sm"
+                />
+                {filterDate && (
+                  <button
+                    onClick={() => setFilterDate("")}
+                    className="text-sm text-blue-600 hover:underline"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
             </div>
 
-            {/* If Applied toggle is ON → show jobs */}
-            {showApplied && (
-              <>
-                {dateFilteredJobs.length === 0 && (
-                  <div className="text-slate-600">
-                    No jobs matching “applied” on this date.
-                  </div>
-                )}
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-                  {dateFilteredJobs.map((job) => (
-                    <JobCard key={job._id || job.jobID} job={job} />
-                  ))}
-                </div>
-              </>
+            {!filterDate && (
+              <div className="text-slate-600">
+                Pick a date to see jobs applied on that day.
+              </div>
+            )}
+
+            {filterDate && dateFilteredJobs.length === 0 && (
+              <div className="text-slate-600">
+                No applied jobs for the selected date.
+              </div>
+            )}
+
+            {filterDate && dateFilteredJobs.length > 0 && (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {dateFilteredJobs.map((job) => (
+                  <JobCard key={job._id || job.jobID || `${job.userID}-${job.joblink}`} job={job} />
+                ))}
+              </div>
             )}
           </>
         )}
       </div>
+
+      {/* Right: ALL Applied for this client */}
+      <RightAppliedColumn jobs={appliedJobs} />
     </div>
   );
 }
